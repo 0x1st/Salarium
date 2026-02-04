@@ -4,6 +4,7 @@ import { useUserStore } from '../store/user'
 const Login = () => import('../views/Login.vue')
 const Persons = () => import('../views/Persons.vue')
 const Salaries = () => import('../views/Salaries.vue')
+const SalaryFields = () => import('../views/SalaryFields.vue')
 
 // Stats module with tabs/routes
 const StatsIndex = () => import('../views/stats/Index.vue')
@@ -31,6 +32,7 @@ const routes = [
   },
   { path: '/persons', component: Persons },
   { path: '/salaries/:personId?', component: Salaries },
+  { path: '/salary-fields', component: SalaryFields, meta: { title: '自定义字段' } },
 ]
 
 const router = createRouter({

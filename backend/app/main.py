@@ -8,6 +8,7 @@ from .routes.auth import router as auth_router
 from .routes.persons import router as persons_router
 from .routes.salaries import router as salaries_router
 from .routes.stats import router as stats_router
+from .routes.salary_fields import router as salary_fields_router
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(persons_router, prefix="/api/persons", tags=["persons"])
     app.include_router(salaries_router, prefix="/api/salaries", tags=["salaries"])
     app.include_router(stats_router, prefix="/api/stats", tags=["stats"])
+    app.include_router(salary_fields_router, prefix="/api/salary-fields", tags=["salary-fields"])
 
     register_tortoise(
         app,
@@ -49,6 +51,7 @@ def create_app() -> FastAPI:
             "app.models.user",
             "app.models.person",
             "app.models.salary_record",
+            "app.models.salary_field",
         ]},
         generate_schemas=True,
         add_exception_handlers=True,

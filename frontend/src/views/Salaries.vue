@@ -4,20 +4,21 @@ import api from '../utils/axios'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../store/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { 
-  Plus, 
-  DollarSign, 
-  Calendar, 
-  TrendingUp, 
-  Award, 
-  Shield, 
-  Calculator, 
-  Trash2, 
+import {
+  Plus,
+  DollarSign,
+  Calendar,
+  TrendingUp,
+  Award,
+  Shield,
+  Calculator,
+  Trash2,
   ArrowLeft,
   User,
   FileText,
   Edit,
-  Filter
+  Filter,
+  Settings
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -34,6 +35,10 @@ const editingId = ref(null)
 
 const filterYear = ref(null)
 const filterMonth = ref(null)
+
+// Custom fields
+const customFields = ref([])
+const customFieldValues = ref({})
 
 const form = ref({
   year: new Date().getFullYear(),
@@ -58,6 +63,9 @@ const form = ref({
   tax: 0,
   note: '',
 })
+
+const incomeCustomFields = computed(() => customFields.value.filter(f => f.field_type === 'income'))
+const deductionCustomFields = computed(() => customFields.value.filter(f => f.field_type === 'deduction'))
 
 
 const stats = computed(() => {
@@ -101,9 +109,13 @@ async function load() {
   if (!personId.value) return
   loading.value = true
   try {
+    // Load custom fields
+    const { data: fieldsData } = await api.get('/salary-fields/')
+    customFields.value = fieldsData
+
     const { data } = await api.get('/salaries/', { params: { person_id: personId.value } })
     list.value = data
-    
+
     const { data: persons } = await api.get('/persons/')
     const person = persons.find(p => p.id === personId.value)
     personName.value = person ? person.name : `人员 ${personId.value}`
@@ -117,6 +129,11 @@ async function load() {
 function openCreate() {
   isEditing.value = false
   editingId.value = null
+  // Reset custom field values
+  customFieldValues.value = {}
+  customFields.value.forEach(f => {
+    customFieldValues.value[f.field_key] = 0
+  })
   form.value = {
     year: new Date().getFullYear(),
     month: new Date().getMonth() + 1,
@@ -150,6 +167,11 @@ function openCreate() {
 function openEdit(salary) {
   isEditing.value = true
   editingId.value = salary.id
+  // Load custom field values
+  customFieldValues.value = {}
+  customFields.value.forEach(f => {
+    customFieldValues.value[f.field_key] = salary.custom_fields?.[f.field_key] || 0
+  })
   form.value = {
     year: salary.year,
     month: salary.month,
@@ -185,7 +207,7 @@ async function submit() {
     ElMessage.warning('基础工资不能为负数')
     return
   }
-  
+
   const numericKeys = [
     'base_salary','performance_salary','high_temp_allowance','low_temp_allowance','computer_allowance','communication_allowance','meal_allowance',
     'mid_autumn_benefit','dragon_boat_benefit','spring_festival_benefit','other_income','comprehensive_allowance',
@@ -201,9 +223,23 @@ async function submit() {
     form.value[k] = typeof v === 'number' && isFinite(v) ? v : 0
   }
 
+  // Prepare custom fields
+  const customFieldsPayload = {}
+  for (const key in customFieldValues.value) {
+    const val = customFieldValues.value[key]
+    if (typeof val === 'number' && isFinite(val) && val !== 0) {
+      customFieldsPayload[key] = val
+    }
+  }
+
+  const payload = {
+    ...form.value,
+    custom_fields: Object.keys(customFieldsPayload).length > 0 ? customFieldsPayload : null
+  }
+
   try {
     if (isEditing.value) {
-      const { data } = await api.put(`/salaries/${editingId.value}`, form.value)
+      const { data } = await api.put(`/salaries/${editingId.value}`, payload)
       const index = list.value.findIndex(item => item.id === editingId.value)
       if (index !== -1) {
         list.value[index] = data
@@ -211,7 +247,7 @@ async function submit() {
       ElMessage.success('工资记录更新成功')
       window.dispatchEvent(new CustomEvent('stats:invalidate'))
     } else {
-      const { data } = await api.post(`/salaries/${personId.value}`, form.value)
+      const { data } = await api.post(`/salaries/${personId.value}`, payload)
       list.value.push(data)
       ElMessage.success('工资记录添加成功')
       window.dispatchEvent(new CustomEvent('stats:invalidate'))
@@ -261,6 +297,10 @@ function goBack() {
   router.push('/persons')
 }
 
+function goToFieldSettings() {
+  router.push('/salary-fields')
+}
+
 function clearFilters() {
   filterYear.value = null
   filterMonth.value = null
@@ -292,10 +332,16 @@ onMounted(load)
           </div>
         </div>
       </div>
-      <button class="btn btn-primary btn-create" @click="openCreate">
-        <Plus class="button-icon" />
-        添加工资记录
-      </button>
+      <div class="header-actions">
+        <button class="btn btn-secondary" @click="goToFieldSettings">
+          <Settings class="button-icon" />
+          字段管理
+        </button>
+        <button class="btn btn-primary btn-create" @click="openCreate">
+          <Plus class="button-icon" />
+          添加工资记录
+        </button>
+      </div>
     </div>
 
     <div class="stats-section">
@@ -560,6 +606,19 @@ onMounted(load)
               <input v-model.number="form.other_income" type="number" class="form-control" step="0.01" min="0" />
             </div>
           </div>
+          <!-- Custom income fields -->
+          <div v-if="incomeCustomFields.length > 0" class="custom-fields-section">
+            <div class="custom-fields-header">
+              <span>自定义收入字段</span>
+              <button type="button" class="btn-link" @click="goToFieldSettings">管理字段</button>
+            </div>
+            <div class="form-row">
+              <div class="form-group" v-for="field in incomeCustomFields" :key="field.id">
+                <label class="form-label">{{ field.name }}</label>
+                <input v-model.number="customFieldValues[field.field_key]" type="number" class="form-control" step="0.01" min="0" />
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="form-section">
@@ -611,6 +670,19 @@ onMounted(load)
             <input v-model.number="form.performance_deduction" type="number" class="form-control" step="0.01" min="0" />
           </div>
         </div>
+          <!-- Custom deduction fields -->
+          <div v-if="deductionCustomFields.length > 0" class="custom-fields-section">
+            <div class="custom-fields-header">
+              <span>自定义扣款字段</span>
+              <button type="button" class="btn-link" @click="goToFieldSettings">管理字段</button>
+            </div>
+            <div class="form-row">
+              <div class="form-group" v-for="field in deductionCustomFields" :key="field.id">
+                <label class="form-label">{{ field.name }}</label>
+                <input v-model.number="customFieldValues[field.field_key]" type="number" class="form-control" step="0.01" min="0" />
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="form-section">
@@ -1147,6 +1219,40 @@ onMounted(load)
   gap: 1rem;
   padding-top: 1rem;
   border-top: 1px solid #e5e7eb;
+}
+
+.header-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.custom-fields-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px dashed #e5e7eb;
+}
+
+.custom-fields-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #3b82f6;
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 768px) {

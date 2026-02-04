@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict
 from pydantic import BaseModel
 
 
@@ -28,6 +28,7 @@ class SalaryCreate(BaseModel):
     performance_deduction: float = 0.0
     tax: float = 0.0
     note: Optional[str] = None
+    custom_fields: Optional[Dict[str, float]] = None  # {field_key: amount}
 
 
 class SalaryUpdate(BaseModel):
@@ -54,6 +55,7 @@ class SalaryUpdate(BaseModel):
     performance_deduction: Optional[float] = None
     tax: Optional[float] = None
     note: Optional[str] = None
+    custom_fields: Optional[Dict[str, float]] = None  # {field_key: amount}
 
 
 class SalaryOut(BaseModel):
@@ -89,3 +91,4 @@ class SalaryOut(BaseModel):
     actual_take_home: float
     non_cash_benefits: float
     note: Optional[str] = None
+    custom_fields: Dict[str, float] = {}  # {field_key: amount}

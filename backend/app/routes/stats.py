@@ -2,7 +2,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, Depends
 from decimal import Decimal
 
-from ..models import SalaryRecord, Person
+from ..models import SalaryRecord, Person, CustomSalaryValue, SalaryField
 from ..schemas.stats import (
     MonthlyStats, YearlyStats, FamilySummary,
     PersonCumulativeInsurance, BenefitStats, IncomeComposition,
@@ -20,6 +20,41 @@ router = APIRouter()
 
 # Helpers for stats calculations aligned with the unified calculation spec
 _D = lambda v: v if isinstance(v, Decimal) else Decimal(str(v or 0))
+
+
+async def get_custom_fields_for_payroll(record_id: int) -> list:
+    """Load custom field info for payroll calculation."""
+    values = await CustomSalaryValue.filter(salary_record_id=record_id).prefetch_related(
+        "salary_field"
+    ).all()
+    return [
+        {
+            "field_type": v.salary_field.field_type,
+            "is_non_cash": v.salary_field.is_non_cash,
+            "amount": float(v.amount),
+        }
+        for v in values
+    ]
+
+
+async def get_custom_fields_by_category(record_id: int) -> dict:
+    """Get custom field values grouped by category for stats."""
+    values = await CustomSalaryValue.filter(salary_record_id=record_id).prefetch_related(
+        "salary_field"
+    ).all()
+    result = {
+        "income": {"total": Decimal("0"), "by_category": {}},
+        "deduction": {"total": Decimal("0"), "by_category": {}},
+    }
+    for v in values:
+        field_type = v.salary_field.field_type
+        category = v.salary_field.category
+        amount = _D(v.amount)
+        result[field_type]["total"] += amount
+        if category not in result[field_type]["by_category"]:
+            result[field_type]["by_category"][category] = Decimal("0")
+        result[field_type]["by_category"][category] += amount
+    return result
 
 # Allowances used for net income (exclude meal allowance as per spec)
 # net = base + performance + high + low + computer - deductions
@@ -145,6 +180,7 @@ async def monthly_stats(
     recs = await q.all()
     result: List[MonthlyStats] = []
     for r in recs:
+        custom_fields_payroll = await get_custom_fields_for_payroll(r.id)
         calc = compute_payroll(
             base_salary=r.base_salary,
             performance_salary=r.performance_salary,
@@ -167,6 +203,7 @@ async def monthly_stats(
             labor_union_fee=r.labor_union_fee,
             performance_deduction=r.performance_deduction,
             tax=r.tax,
+            custom_fields=custom_fields_payroll,
         )
         allowances_total = r.high_temp_allowance + r.low_temp_allowance + r.computer_allowance + r.communication_allowance + r.comprehensive_allowance
         insurance_total = (r.pension_insurance + r.medical_insurance + r.unemployment_insurance +
@@ -202,6 +239,7 @@ async def yearly_stats(user= Depends(get_current_user), person_id: Optional[int]
     recs = await SalaryRecord.filter(person_id__in=list(person_ids), year=year).all()
     stats_map = {}
     for r in recs:
+        custom_fields_payroll = await get_custom_fields_for_payroll(r.id)
         calc = compute_payroll(
             base_salary=r.base_salary,
             performance_salary=r.performance_salary,
@@ -224,11 +262,12 @@ async def yearly_stats(user= Depends(get_current_user), person_id: Optional[int]
             labor_union_fee=r.labor_union_fee,
             performance_deduction=r.performance_deduction,
             tax=r.tax,
+            custom_fields=custom_fields_payroll,
         )
         allowances_total = r.high_temp_allowance + r.low_temp_allowance + r.computer_allowance + r.communication_allowance + r.comprehensive_allowance
         bonuses_total = r.mid_autumn_benefit + r.dragon_boat_benefit + r.spring_festival_benefit + r.other_income
         insurance_total = r.pension_insurance + r.medical_insurance + r.unemployment_insurance + r.critical_illness_insurance + r.enterprise_annuity + r.housing_fund
-        
+
         s = stats_map.get(r.person_id, {
             "months": 0,
             "gross": Decimal("0"),
@@ -281,6 +320,7 @@ async def family_summary(user= Depends(get_current_user), year: int = Query(...)
     total_gross = Decimal("0")
     total_net = Decimal("0")
     for r in recs:
+        custom_fields_payroll = await get_custom_fields_for_payroll(r.id)
         calc = compute_payroll(
             base_salary=r.base_salary,
             performance_salary=r.performance_salary,
@@ -303,6 +343,7 @@ async def family_summary(user= Depends(get_current_user), year: int = Query(...)
             labor_union_fee=r.labor_union_fee,
             performance_deduction=r.performance_deduction,
             tax=r.tax,
+            custom_fields=custom_fields_payroll,
         )
         insurance_calc = (r.pension_insurance + r.medical_insurance + r.unemployment_insurance +
                          r.critical_illness_insurance + r.enterprise_annuity + r.housing_fund)

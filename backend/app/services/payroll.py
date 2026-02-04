@@ -25,6 +25,7 @@ def compute_payroll(
     labor_union_fee,
     performance_deduction,
     tax,
+    custom_fields=None,  # List of dicts: [{field_type, is_non_cash, amount}, ...]
 ):
     D = lambda v: v if isinstance(v, Decimal) else Decimal(str(v or 0))
     q = Decimal("0.01")
@@ -53,12 +54,34 @@ def compute_payroll(
     performance_deduction = D(performance_deduction)
     tax = D(tax)
 
+    # Process custom fields
+    custom_income = Decimal("0")
+    custom_deductions = Decimal("0")
+    custom_non_cash = Decimal("0")
+    custom_cash_income = Decimal("0")
+
+    if custom_fields:
+        for cf in custom_fields:
+            amount = D(cf.get("amount", 0))
+            field_type = cf.get("field_type", "income")
+            is_non_cash = cf.get("is_non_cash", False)
+
+            if field_type == "income":
+                custom_income += amount
+                if is_non_cash:
+                    custom_non_cash += amount
+                else:
+                    custom_cash_income += amount
+            elif field_type == "deduction":
+                custom_deductions += amount
+
     # Non-cash benefits (not included in actual take-home)
     non_cash_benefits = (
         meal_allowance
         + mid_autumn_benefit
         + dragon_boat_benefit
         + spring_festival_benefit
+        + custom_non_cash
     ).quantize(q, rounding=ROUND_HALF_UP)
 
     # Total income includes everything
@@ -75,6 +98,7 @@ def compute_payroll(
         + dragon_boat_benefit
         + spring_festival_benefit
         + other_income
+        + custom_income
     ).quantize(q, rounding=ROUND_HALF_UP)
 
     total_deductions = (
@@ -87,6 +111,7 @@ def compute_payroll(
         + other_deductions
         + labor_union_fee
         + performance_deduction
+        + custom_deductions
     ).quantize(q, rounding=ROUND_HALF_UP)
 
     gross_income = total_income
@@ -103,6 +128,7 @@ def compute_payroll(
         + communication_allowance
         + comprehensive_allowance
         + other_income
+        + custom_cash_income
         - total_deductions
     ).quantize(q, rounding=ROUND_HALF_UP)
 
